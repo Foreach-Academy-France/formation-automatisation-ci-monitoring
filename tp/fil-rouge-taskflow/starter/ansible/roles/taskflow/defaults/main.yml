@@ -1,0 +1,11 @@
+---
+# Rôle taskflow — version du cours Ansible (front statique seulement).
+# TODO J2 : passer au déploiement "par releases" :
+#   app_root: /opt/taskflow, app_release_dir, app_current, app_shared,
+#   app_user, api_port, keep_releases, node_major (cf. group_vars/all.yml)
+app_name: taskflow
+app_web_root: /var/www/taskflow
+app_server_name: _
+app_http_port: 80
+app_dist_local: "{{ playbook_dir }}/../../dist"
+# TODO J2 : app_api_local: "{{ playbook_dir }}/../../api"

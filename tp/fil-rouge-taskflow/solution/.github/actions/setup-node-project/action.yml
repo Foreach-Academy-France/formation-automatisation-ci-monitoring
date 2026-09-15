@@ -1,0 +1,45 @@
+# =============================================================================
+# Action composite : setup-node-project
+# =============================================================================
+# Factorise les 2 steps répétés dans TOUS les jobs Node du projet :
+#   1. installer Node.js (avec cache npm basé sur le lockfile)
+#   2. npm ci (installation reproductible depuis package-lock.json)
+#
+# Utilisation dans un workflow :
+#   - uses: ./.github/actions/setup-node-project
+#     with:
+#       working-directory: api
+#       node-version: '20'
+#
+# Une action composite = des STEPS réutilisables (à comparer au workflow
+# réutilisable = des JOBS réutilisables, cf. reusable-node-ci.yml).
+# =============================================================================
+name: Setup Node project
+description: Installe Node.js avec cache npm puis exécute npm ci dans un sous-dossier
+
+inputs:
+  working-directory:
+    description: Dossier contenant package.json et package-lock.json
+    required: false
+    default: '.'
+  node-version:
+    description: Version de Node.js à installer
+    required: false
+    default: '20'
+
+runs:
+  using: composite
+  steps:
+    - name: 📦 Setup Node.js ${{ inputs.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: npm
+        # Le cache est invalidé dès que le lockfile change
+        cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
+    - name: 📚 Installation des dépendances (npm ci)
+      # Dans une action composite, `shell:` est OBLIGATOIRE sur chaque step `run`
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: npm ci

@@ -1,0 +1,5 @@
+---
+app_env: staging
+app_server_name: staging.taskflow.local
+# Secret fictif : en staging on tolère un secret en clair pour simplifier
+api_secret: "staging-secret-pas-si-secret"

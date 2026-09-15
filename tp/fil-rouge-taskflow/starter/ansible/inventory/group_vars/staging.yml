@@ -1,0 +1,5 @@
+---
+app_env: staging
+app_server_name: staging.taskflow.local
+# TODO J2 : variables propres au staging (secrets tolérés en clair ici)
+api_secret: "staging-secret"

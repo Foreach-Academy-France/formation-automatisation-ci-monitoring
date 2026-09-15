@@ -1,0 +1,29 @@
+# Fallback : 2 "serveurs" SSH en conteneurs (staging / prod) sur le réseau
+# `monitoring` (celui de la stack Prometheus) pour être scrapables.
+#   cp ~/.ssh/taskflow_lab.pub authorized_keys && docker compose up -d --build
+#   ansible -i "ubuntu@localhost:2201," -m ping all   (staging)  / :2202 (prod)
+name: taskflow-ssh-target
+
+services:
+  web1:
+    build: .
+    container_name: taskflow-web1
+    hostname: taskflow-web1
+    ports:
+      - "2201:22"
+      - "8091:80"
+    networks: [monitoring]
+
+  web2:
+    build: .
+    container_name: taskflow-web2
+    hostname: taskflow-web2
+    ports:
+      - "2202:22"
+      - "8092:80"
+    networks: [monitoring]
+
+networks:
+  monitoring:
+    name: monitoring
+    external: true      # créé par tp/.../monitoring/docker-compose.yml

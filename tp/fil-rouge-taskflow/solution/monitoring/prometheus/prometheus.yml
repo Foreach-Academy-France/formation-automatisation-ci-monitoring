@@ -1,0 +1,88 @@
+# =============================================================================
+# prometheus.yml — configuration de collecte pour TaskFlow opérée
+# =============================================================================
+# Cibles :
+#   - l'API TaskFlow sur les 2 VMs (via nginx :80/metrics), label env=staging|prod
+#   - node_exporter sur les 2 VMs (:9100, déployé par le workflow monitoring.yml)
+#   - le poste étudiant : node-exporter local, cAdvisor, Prometheus lui-même
+#   - blackbox_exporter : sondes HTTP externes sur /health
+#
+# ⚠️ Remplacez 192.168.64.11 / .12 par les IP de vos VMs (lab-up.sh).
+# =============================================================================
+global:
+  scrape_interval: 15s          # fréquence de collecte
+  evaluation_interval: 15s      # fréquence d'évaluation des règles
+  external_labels:
+    monitor: taskflow-lab
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+scrape_configs:
+  # ── Prometheus se surveille lui-même ────────────────────────────────────────
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ── Poste étudiant ──────────────────────────────────────────────────────────
+  - job_name: node-local
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          env: lab
+          instance_name: poste-etudiant
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['cadvisor:8080']
+        labels:
+          env: lab
+
+  # ── API TaskFlow (whitebox : métriques applicatives) ────────────────────────
+  # nginx proxy /metrics vers l'API : on scrape le port 80.
+  - job_name: taskflow-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['192.168.64.11:80']
+        labels:
+          env: staging
+      - targets: ['192.168.64.12:80']
+        labels:
+          env: prod
+
+  # ── VMs : node_exporter (USE : CPU, mémoire, disque, réseau) ────────────────
+  - job_name: node-vms
+    static_configs:
+      - targets: ['192.168.64.11:9100']
+        labels:
+          env: staging
+      - targets: ['192.168.64.12:9100']
+        labels:
+          env: prod
+
+  # ── Disponibilité externe (blackbox : sonde HTTP sur /health) ──────────────
+  # Astuce classique : la cible devient un paramètre (__param_target) et
+  # l'adresse scrapée est celle de blackbox_exporter.
+  - job_name: blackbox-http
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets: ['http://192.168.64.11/health']
+        labels:
+          env: staging
+      - targets: ['http://192.168.64.12/health']
+        labels:
+          env: prod
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

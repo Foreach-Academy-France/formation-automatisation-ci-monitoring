@@ -1,0 +1,9 @@
+---
+# ⚠️  Dans un vrai projet, CE FICHIER DOIT ÊTRE CHIFFRÉ :
+#     ansible-vault encrypt inventory/group_vars/prod.yml
+# Il est laissé en clair dans la SOLUTION uniquement pour la lisibilité du cours.
+# Le workflow Deploy passe --vault-password-file : il fonctionne aussi bien
+# avec un fichier chiffré qu'en clair.
+app_env: prod
+app_server_name: taskflow.local
+api_secret: "prod-secret-A-CHIFFRER-AVEC-VAULT"

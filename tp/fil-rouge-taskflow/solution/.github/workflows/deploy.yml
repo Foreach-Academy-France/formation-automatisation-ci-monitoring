@@ -1,0 +1,315 @@
+# =============================================================================
+# deploy.yml — Déploiement continu de TaskFlow : build once, deploy many
+# =============================================================================
+# Chaîne :  build (GitHub-hosted) ──► deploy-staging ──► smoke-staging
+#                                        (runner self-hosted, environment staging)
+#           ──► deploy-prod ──► smoke-prod ──► annotate-grafana ──► notify
+#               (environment production = APPROBATION MANUELLE d'un reviewer)
+#
+# Rollback : Actions → Deploy → Run workflow → rollback_to = <numéro de run>
+#            → seul le job `rollback` s'exécute (les autres sont ignorés).
+#
+# Pourquoi un runner self-hosted ? Les VMs du lab (Multipass) ne sont
+# joignables que depuis le poste étudiant : un runner GitHub-hosted ne peut
+# pas les atteindre. Le job `build`, lui, n'a pas besoin du lab.
+#
+# Secrets / variables attendus (par environment, cf. tp/fil-rouge-taskflow/README.md) :
+#   secrets.SSH_PRIVATE_KEY, secrets.ANSIBLE_VAULT_PASSWORD, vars.TARGET_IP
+#   + au niveau repo : secrets.GRAFANA_TOKEN, vars.GRAFANA_URL, secrets.DISCORD_WEBHOOK
+# =============================================================================
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'monitoring/**'          # la stack de monitoring a son propre cycle
+  workflow_dispatch:
+    inputs:
+      rollback_to:
+        description: 'Numéro de run à restaurer en PROD (laisser vide pour un déploiement normal)'
+        required: false
+        type: string
+        default: ''
+
+# Jamais deux déploiements en même temps ; on ne les annule pas non plus
+# (un déploiement interrompu à moitié est pire qu'un déploiement en retard).
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  APP_VERSION: ${{ github.run_number }}
+  ARTIFACT: taskflow-${{ github.run_number }}.tar.gz
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # 1. BUILD — produit l'artefact immuable, une seule fois
+  # ───────────────────────────────────────────────────────────────────────────
+  build:
+    name: 🔨 Build de l'artefact
+    if: ${{ !inputs.rollback_to }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 🧰 Dépendances front
+        uses: ./.github/actions/setup-node-project
+        with:
+          working-directory: .
+
+      - name: 🧰 Dépendances API (pour vérifier le lockfile ; non embarquées)
+        uses: ./.github/actions/setup-node-project
+        with:
+          working-directory: api
+
+      - name: 🔨 Build du front
+        run: npm run build
+
+      # L'artefact contient dist/ (front buildé) + api/ (sources + lockfile).
+      # Les node_modules de l'API sont installés SUR la VM par Ansible
+      # (npm ci --omit=dev) : on n'embarque jamais de binaires compilés.
+      - name: 📦 Archive de release
+        run: |
+          tar czf "$ARTIFACT" dist api \
+            --exclude=api/node_modules --exclude=api/reports --exclude=api/coverage
+          ls -lh "$ARTIFACT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: taskflow-build
+          path: ${{ env.ARTIFACT }}
+          retention-days: 30
+          if-no-files-found: error
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 2. STAGING — déploiement automatique
+  # ───────────────────────────────────────────────────────────────────────────
+  deploy-staging:
+    name: 🚀 Deploy staging
+    needs: build
+    runs-on: [self-hosted, lab]
+    timeout-minutes: 15
+    environment:
+      name: staging
+      url: http://${{ vars.TARGET_IP }}
+    env:
+      ANSIBLE_HOST_KEY_CHECKING: 'False'
+      ANSIBLE_FORCE_COLOR: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 📥 Récupération de l'artefact
+        uses: actions/download-artifact@v4
+        with:
+          name: taskflow-build
+
+      - name: 📂 Extraction (dist/ + api/ à la racine du workspace)
+        run: tar xzf "$ARTIFACT" && ls dist api
+
+      # La clé privée n'est jamais écrite sur disque : elle vit dans ssh-agent
+      # le temps du job. Le secret est masqué automatiquement dans les logs.
+      - name: 🔑 Clé SSH du lab
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # $RUNNER_TEMP est un dossier temporaire propre au job, hors du workspace
+      # (donc jamais archivé ni committé par erreur). chmod 600 : lisible par
+      # le runner uniquement. Le fichier est supprimé en fin de job (if: always()).
+      - name: 🔐 Mot de passe Vault
+        run: |
+          printf '%s' "${{ secrets.ANSIBLE_VAULT_PASSWORD }}" > "$RUNNER_TEMP/.vault_pass"
+          chmod 600 "$RUNNER_TEMP/.vault_pass"
+
+      - name: 📚 Collections Ansible
+        run: ansible-galaxy collection install -r ansible/requirements.yml
+
+      - name: ⚙️ ansible-playbook deploy.yml (staging)
+        run: |
+          ansible-playbook -i ansible/inventory/hosts.ini ansible/playbooks/deploy.yml \
+            -l staging \
+            -e app_version=${{ env.APP_VERSION }} \
+            -e target_ip=${{ vars.TARGET_IP }} \
+            --vault-password-file "$RUNNER_TEMP/.vault_pass"
+
+      - name: 🧹 Nettoyage du secret
+        if: always()
+        run: rm -f "$RUNNER_TEMP/.vault_pass"
+
+  smoke-staging:
+    name: 🩺 Smoke test staging
+    needs: deploy-staging
+    runs-on: [self-hosted, lab]
+    timeout-minutes: 5
+    environment: staging
+    steps:
+      # Vérification "boîte noire" : on ne fait confiance ni à Ansible ni aux
+      # logs, on interroge l'application comme le ferait un utilisateur.
+      - name: GET /health
+        run: |
+          curl -fsS --retry 5 --retry-delay 3 --retry-all-errors \
+            "http://${{ vars.TARGET_IP }}/health" | tee health.json
+          grep -q '"status":"ok"' health.json
+          grep -q "\"version\":\"${APP_VERSION}\"" health.json
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 3. PRODUCTION — après approbation (required reviewers sur l'environment)
+  # ───────────────────────────────────────────────────────────────────────────
+  deploy-prod:
+    name: 🚀 Deploy production
+    needs: smoke-staging
+    runs-on: [self-hosted, lab]
+    timeout-minutes: 15
+    environment:
+      name: production          # ← le job attend ici la validation d'un reviewer
+      url: http://${{ vars.TARGET_IP }}
+    # vars.TARGET_IP de l'environment production est transmis aux jobs suivants :
+    # ils n'ont ainsi PAS besoin de `environment: production` (sinon 2e approbation).
+    outputs:
+      target_ip: ${{ vars.TARGET_IP }}
+    env:
+      ANSIBLE_HOST_KEY_CHECKING: 'False'
+      ANSIBLE_FORCE_COLOR: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: taskflow-build
+
+      - run: tar xzf "$ARTIFACT" && ls dist api
+
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # $RUNNER_TEMP est un dossier temporaire propre au job, hors du workspace
+      # (donc jamais archivé ni committé par erreur). chmod 600 : lisible par
+      # le runner uniquement. Le fichier est supprimé en fin de job (if: always()).
+      - name: 🔐 Mot de passe Vault
+        run: |
+          printf '%s' "${{ secrets.ANSIBLE_VAULT_PASSWORD }}" > "$RUNNER_TEMP/.vault_pass"
+          chmod 600 "$RUNNER_TEMP/.vault_pass"
+
+      - run: ansible-galaxy collection install -r ansible/requirements.yml
+
+      - name: ⚙️ ansible-playbook deploy.yml (prod)
+        run: |
+          ansible-playbook -i ansible/inventory/hosts.ini ansible/playbooks/deploy.yml \
+            -l prod \
+            -e app_version=${{ env.APP_VERSION }} \
+            -e target_ip=${{ vars.TARGET_IP }} \
+            --vault-password-file "$RUNNER_TEMP/.vault_pass"
+
+      - name: 🧹 Nettoyage du secret
+        if: always()
+        run: rm -f "$RUNNER_TEMP/.vault_pass"
+
+  smoke-prod:
+    name: 🩺 Smoke test production
+    needs: deploy-prod
+    runs-on: [self-hosted, lab]
+    timeout-minutes: 5
+    # Pas de `environment: production` ici : l'approbation a déjà été donnée
+    # pour deploy-prod, on réutilise son output.
+    steps:
+      - name: GET /health
+        run: |
+          curl -fsS --retry 5 --retry-delay 3 --retry-all-errors \
+            "http://${{ needs.deploy-prod.outputs.target_ip }}/health" | tee health.json
+          grep -q '"status":"ok"' health.json
+          grep -q "\"version\":\"${APP_VERSION}\"" health.json
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 4. OBSERVABILITÉ — annotation Grafana (J4) : corréler déploiement ↔ courbes
+  # ───────────────────────────────────────────────────────────────────────────
+  annotate-grafana:
+    name: 📍 Annotation Grafana
+    needs: [smoke-staging, smoke-prod]
+    # always() : on annote même si la prod a été refusée/échouée, tant que
+    # staging a réellement été déployé. continue-on-error : Grafana éteint
+    # ne doit pas faire passer le déploiement au rouge.
+    if: ${{ always() && needs.smoke-staging.result == 'success' }}
+    runs-on: [self-hosted, lab]
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - name: POST /api/annotations
+        env:
+          GRAFANA_URL: ${{ vars.GRAFANA_URL }}
+          GRAFANA_TOKEN: ${{ secrets.GRAFANA_TOKEN }}
+          PROD_RESULT: ${{ needs.smoke-prod.result }}
+        run: |
+          if [ -z "$GRAFANA_URL" ] || [ -z "$GRAFANA_TOKEN" ]; then
+            echo "::notice::GRAFANA_URL / GRAFANA_TOKEN non définis : annotation ignorée"; exit 0
+          fi
+          ENVS="staging"
+          [ "$PROD_RESULT" = "success" ] && ENVS="staging,prod"
+          TAGS=$(printf '"deploy","github-actions"'; for e in ${ENVS//,/ }; do printf ',"%s"' "$e"; done)
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          curl -fsS -X POST "$GRAFANA_URL/api/annotations" \
+            -H "Authorization: Bearer $GRAFANA_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"tags\":[$TAGS],\"text\":\"Deploy #${APP_VERSION} (${SHORT_SHA}) → ${ENVS} — ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}"
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 5. NOTIFICATION (bonus) — Discord si le secret est défini
+  # ───────────────────────────────────────────────────────────────────────────
+  notify:
+    name: 💬 Notification
+    needs: [smoke-staging, smoke-prod]
+    if: ${{ always() && !inputs.rollback_to }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      # Un secret ne peut pas être testé dans `if:` au niveau du job :
+      # on le passe en variable d'environnement et on teste dans le shell.
+      - name: Discord webhook
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          STAGING: ${{ needs.smoke-staging.result }}
+          PROD: ${{ needs.smoke-prod.result }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then echo "DISCORD_WEBHOOK absent : pas de notification"; exit 0; fi
+          ICON="✅"; [ "$STAGING" != "success" ] && ICON="❌"
+          MSG="$ICON **TaskFlow** deploy #${APP_VERSION} — staging: ${STAGING}, prod: ${PROD} — ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -fsS -H 'Content-Type: application/json' -d "{\"content\":\"$MSG\"}" "$WEBHOOK"
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 6. ROLLBACK — uniquement via workflow_dispatch avec rollback_to renseigné
+  # ───────────────────────────────────────────────────────────────────────────
+  rollback:
+    name: ⏪ Rollback production → #${{ inputs.rollback_to }}
+    if: ${{ inputs.rollback_to }}
+    runs-on: [self-hosted, lab]
+    timeout-minutes: 10
+    environment:
+      name: production          # approbation requise, comme un déploiement
+      url: http://${{ vars.TARGET_IP }}
+    env:
+      ANSIBLE_HOST_KEY_CHECKING: 'False'
+      ANSIBLE_FORCE_COLOR: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # Le rollback ne transporte rien : la release est déjà sur la VM,
+      # le playbook rebascule le lien `current` et redémarre l'API.
+      - name: ⚙️ ansible-playbook rollback.yml (prod)
+        run: |
+          ansible-playbook -i ansible/inventory/hosts.ini ansible/playbooks/rollback.yml \
+            -l prod -e rollback_to=${{ inputs.rollback_to }}
+
+      - name: 🩺 Vérification
+        run: |
+          curl -fsS "http://${{ vars.TARGET_IP }}/health" | tee health.json
+          grep -q "\"version\":\"${{ inputs.rollback_to }}\"" health.json

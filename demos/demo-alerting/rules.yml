@@ -1,0 +1,10 @@
+groups:
+  - name: demo
+    rules:
+      - alert: InstanceDown
+        expr: up == 0
+        for: 30s                     # pending 30 s puis firing
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.instance }} est down"
+          description: "Plus de scrape depuis 30 s (job {{ $labels.job }})."

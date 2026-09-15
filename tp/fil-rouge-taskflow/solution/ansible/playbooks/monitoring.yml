@@ -1,0 +1,21 @@
+---
+# =============================================================================
+# monitoring.yml — installe node_exporter sur toutes les VMs (J3).
+#   ansible-playbook -i inventory/hosts.ini playbooks/monitoring.yml
+# Prometheus (sur le poste étudiant) scrape ensuite <ip_vm>:9100.
+# =============================================================================
+- name: Installer les agents de monitoring
+  hosts: web
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: node_exporter
+
+  post_tasks:
+    - name: Vérifier que node_exporter expose des métriques
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ node_exporter_port }}/metrics"
+        return_content: true
+      register: ne
+      failed_when: "'node_cpu_seconds_total' not in ne.content"

@@ -1,0 +1,15 @@
+---
+# Rôle node_exporter — À COMPLÉTER AU JOUR 3 (TP3, étape 3)
+#
+# Étapes attendues :
+#   [ ] créer l'utilisateur système {{ node_exporter_user }} (shell nologin)
+#   [ ] télécharger l'archive officielle (get_url) :
+#       https://github.com/prometheus/node_exporter/releases/download/v{{ version }}/node_exporter-{{ version }}.linux-amd64.tar.gz
+#   [ ] extraire (unarchive remote_src) et copier le binaire vers {{ node_exporter_bin }} (mode 0755)
+#   [ ] déployer templates/node_exporter.service.j2 dans /etc/systemd/system/
+#   [ ] systemd : daemon_reload, enabled, started (+ handler Restart node_exporter)
+#   [ ] ouvrir le port {{ node_exporter_port }} dans UFW si présent
+#   [ ] idempotence : ne pas retélécharger si la bonne version est déjà installée
+- name: TODO J3 — implémenter le rôle node_exporter
+  ansible.builtin.debug:
+    msg: "Rôle node_exporter à compléter (voir tasks/main.yml)"

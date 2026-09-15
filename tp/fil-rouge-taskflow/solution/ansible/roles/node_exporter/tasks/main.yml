@@ -1,0 +1,72 @@
+---
+# =============================================================================
+# Rôle node_exporter — expose les métriques système de la VM sur :9100
+# Installation "binaire officiel + unité systemd" (pas de paquet apt : la
+# version des dépôts Ubuntu est ancienne).
+# =============================================================================
+- name: Créer l'utilisateur système node_exporter
+  ansible.builtin.user:
+    name: "{{ node_exporter_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: Vérifier la version installée
+  ansible.builtin.command: "{{ node_exporter_bin }} --version"
+  register: ne_version
+  changed_when: false
+  failed_when: false
+
+- name: Télécharger l'archive node_exporter {{ node_exporter_version }}
+  ansible.builtin.get_url:
+    url: "{{ node_exporter_url }}"
+    dest: "/tmp/{{ node_exporter_archive }}.tar.gz"
+    mode: "0644"
+  when: node_exporter_version not in (ne_version.stdout | default('') ~ ne_version.stderr | default(''))
+
+- name: Extraire l'archive
+  ansible.builtin.unarchive:
+    src: "/tmp/{{ node_exporter_archive }}.tar.gz"
+    dest: /tmp
+    remote_src: true
+  when: node_exporter_version not in (ne_version.stdout | default('') ~ ne_version.stderr | default(''))
+
+- name: Installer le binaire
+  ansible.builtin.copy:
+    src: "/tmp/{{ node_exporter_archive }}/node_exporter"
+    dest: "{{ node_exporter_bin }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+  when: node_exporter_version not in (ne_version.stdout | default('') ~ ne_version.stderr | default(''))
+  notify: Restart node_exporter
+
+- name: Déployer l'unité systemd
+  ansible.builtin.template:
+    src: node_exporter.service.j2
+    dest: /etc/systemd/system/node_exporter.service
+    mode: "0644"
+  notify: Restart node_exporter
+
+- name: Activer et démarrer node_exporter
+  ansible.builtin.systemd:
+    name: node_exporter
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Vérifier si UFW est installé
+  ansible.builtin.stat:
+    path: /usr/sbin/ufw
+  register: ufw_bin
+
+- name: Ouvrir le port {{ node_exporter_port }} dans UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ node_exporter_port }}"
+    proto: tcp
+  when: ufw_bin.stat.exists
+
+- name: Appliquer les handlers
+  ansible.builtin.meta: flush_handlers

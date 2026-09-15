@@ -1,0 +1,61 @@
+---
+# Rôle taskflow — déploie le front statique derrière nginx (état du cours Ansible).
+#
+# TODO J2 (TP2, étape 2) — étendre ce rôle :
+#   [ ] installer Node.js (dépôt NodeSource, variable node_major)
+#   [ ] créer l'utilisateur système {{ app_user }}
+#   [ ] déployer dans {{ app_root }}/releases/{{ app_version }}/{dist,api}
+#       (synchronize, exclure node_modules / reports / coverage)
+#   [ ] npm ci --omit=dev dans la release (command + creates)
+#   [ ] templates : api.env.j2 (→ shared/api.env) et taskflow-api.service.j2
+#   [ ] lien symbolique {{ app_root }}/current → release, notify Restart taskflow-api
+#   [ ] vhost nginx : root current/dist + proxy /api, /health, /metrics → 127.0.0.1:{{ api_port }}
+#   [ ] purge des anciennes releases (garder keep_releases)
+#   [ ] handler Restart taskflow-api
+- name: Installer nginx
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+    update_cache: true
+
+- name: Créer la racine web de l'application
+  ansible.builtin.file:
+    path: "{{ app_web_root }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: "0755"
+
+- name: Copier les fichiers buildés de l'application
+  ansible.posix.synchronize:
+    src: "{{ app_dist_local }}/"
+    dest: "{{ app_web_root }}/"
+    delete: true
+    recursive: true
+  notify: Reload nginx
+
+- name: Déployer la configuration nginx de TaskFlow
+  ansible.builtin.template:
+    src: nginx-taskflow.conf.j2
+    dest: "/etc/nginx/sites-available/{{ app_name }}.conf"
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Activer le site TaskFlow
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ app_name }}.conf"
+    dest: "/etc/nginx/sites-enabled/{{ app_name }}.conf"
+    state: link
+  notify: Reload nginx
+
+- name: Désactiver le site nginx par défaut
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload nginx
+
+- name: S'assurer que nginx est démarré et activé au boot
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true

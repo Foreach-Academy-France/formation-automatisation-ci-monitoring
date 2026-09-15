@@ -1,0 +1,73 @@
+---
+# =============================================================================
+# rollback.yml — remet en service une release précédente.
+#
+#   ansible-playbook -i inventory/hosts.ini playbooks/rollback.yml \
+#     -l prod -e rollback_to=41
+#
+# Principe : les releases sont conservées dans {{ app_root }}/releases/<n>,
+# il suffit de rebasculer le lien symbolique "current" et de redémarrer l'API.
+# Aucun rebuild, aucun transfert : le rollback prend quelques secondes.
+# =============================================================================
+- name: Rollback TaskFlow
+  hosts: web
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Vérifier le paramètre rollback_to
+      ansible.builtin.assert:
+        that:
+          - rollback_to is defined
+          - rollback_to | string | length > 0
+        fail_msg: "Passez -e rollback_to=<numéro de release>"
+
+    - name: Vérifier que la release cible existe sur le serveur
+      ansible.builtin.stat:
+        path: "{{ app_root }}/releases/{{ rollback_to }}/api/src/server.js"
+      register: release_stat
+
+    - name: Échouer proprement si la release est absente
+      ansible.builtin.fail:
+        msg: "La release {{ rollback_to }} n'existe pas dans {{ app_root }}/releases/"
+      when: not release_stat.stat.exists
+
+    - name: Rebasculer le lien current vers la release cible
+      ansible.builtin.file:
+        src: "{{ app_root }}/releases/{{ rollback_to }}"
+        dest: "{{ app_root }}/current"
+        state: link
+        force: true
+      notify:
+        - Restart taskflow-api
+        - Reload nginx
+
+    - name: Mettre à jour la version annoncée par /health
+      ansible.builtin.lineinfile:
+        path: "{{ app_root }}/shared/api.env"
+        regexp: '^APP_VERSION='
+        line: "APP_VERSION={{ rollback_to }}"
+      notify: Restart taskflow-api
+
+    - name: Appliquer les handlers immédiatement
+      ansible.builtin.meta: flush_handlers
+
+    - name: Vérifier que l'API répond avec la version restaurée
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ api_port }}/health"
+        return_content: true
+      register: health
+      retries: 5
+      delay: 2
+      until: health.status == 200 and health.json.version == (rollback_to | string)
+
+  handlers:
+    - name: Restart taskflow-api
+      ansible.builtin.systemd:
+        name: taskflow-api
+        state: restarted
+
+    - name: Reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded

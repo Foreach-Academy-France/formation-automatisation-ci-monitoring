@@ -1,0 +1,16 @@
+# Workflow APPELANT : 2 projets, 0 duplication
+name: CI
+on: [push]
+concurrency: { group: 'ci-${{ github.ref }}', cancel-in-progress: true }
+jobs:
+  front:
+    uses: ./.github/workflows/reusable-ci.yml
+    with: { working-directory: . }
+  api:
+    uses: ./.github/workflows/reusable-ci.yml
+    with: { working-directory: api }
+  summary:
+    needs: [front, api]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "front ${{ needs.front.outputs.version }} / api ${{ needs.api.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,201 @@
+---
+# =============================================================================
+# Rôle taskflow — déploiement "par releases" de TaskFlow (front + API)
+#
+#   {{ app_root }}/
+#   ├── releases/
+#   │   ├── 41/  (dist/ + api/)      ← ancienne release, conservée pour rollback
+#   │   └── 42/  (dist/ + api/)      ← release en cours de déploiement
+#   ├── current -> releases/42       ← lien symbolique : bascule atomique
+#   └── shared/api.env               ← config partagée entre releases
+#
+# Le playbook est appelé avec -e app_version=<numéro de run GitHub Actions>.
+# =============================================================================
+
+# ── 1. Prérequis système ─────────────────────────────────────────────────────
+- name: Installer les paquets de base
+  ansible.builtin.apt:
+    name: [nginx, curl, rsync, acl, ca-certificates, gnupg]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Créer le répertoire des clés apt
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Ajouter la clé GPG du dépôt NodeSource
+  ansible.builtin.get_url:
+    url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+    dest: /etc/apt/keyrings/nodesource.asc
+    mode: "0644"
+
+# Fichier sources.list écrit "à la main" : fonctionne sur toutes les versions
+# d'Ansible (apt_repository est déprécié, deb822_repository trop récent).
+- name: Ajouter le dépôt NodeSource (Node {{ node_major }})
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/nodesource.list
+    content: "deb [signed-by=/etc/apt/keyrings/nodesource.asc] https://deb.nodesource.com/node_{{ node_major }}.x nodistro main\n"
+    mode: "0644"
+
+- name: Installer Node.js
+  ansible.builtin.apt:
+    name: nodejs
+    state: present
+    update_cache: true
+
+- name: Créer l'utilisateur système de l'API
+  ansible.builtin.user:
+    name: "{{ app_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ app_root }}"
+    create_home: false
+
+# ── 2. Arborescence ──────────────────────────────────────────────────────────
+- name: Créer l'arborescence de déploiement
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0755"
+  loop:
+    - "{{ app_root }}"
+    - "{{ app_root }}/releases"
+    - "{{ app_shared }}"
+    - "{{ app_release_dir }}"
+
+# ── 3. Transport de l'artefact (dist/ + api/) ────────────────────────────────
+# synchronize = rsync depuis le nœud de contrôle. On exclut ce qui ne doit
+# JAMAIS voyager : node_modules (réinstallés sur la VM), rapports, coverage.
+- name: Copier le front buildé (dist/)
+  ansible.posix.synchronize:
+    src: "{{ app_dist_local }}/"
+    dest: "{{ app_release_dir }}/dist/"
+    delete: true
+    recursive: true
+
+- name: Copier les sources de l'API (api/)
+  ansible.posix.synchronize:
+    src: "{{ app_api_local }}/"
+    dest: "{{ app_release_dir }}/api/"
+    delete: true
+    recursive: true
+    rsync_opts:
+      - "--exclude=node_modules"
+      - "--exclude=reports"
+      - "--exclude=coverage"
+      - "--exclude=.env"
+
+- name: Donner la release à l'utilisateur applicatif
+  ansible.builtin.file:
+    path: "{{ app_release_dir }}"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    recurse: true
+
+# npm ci --omit=dev : installation reproductible des seules dépendances de prod
+- name: Installer les dépendances de l'API (npm ci --omit=dev)
+  ansible.builtin.command:
+    cmd: npm ci --omit=dev --no-audit --no-fund
+    chdir: "{{ app_release_dir }}/api"
+    creates: "{{ app_release_dir }}/api/node_modules"
+  become_user: "{{ app_user }}"
+
+# ── 4. Configuration (12-factor : la config vit dans l'environnement) ───────
+- name: Générer le fichier d'environnement de l'API
+  ansible.builtin.template:
+    src: api.env.j2
+    dest: "{{ app_shared }}/api.env"
+    owner: root
+    group: "{{ app_user }}"
+    mode: "0640"
+  notify: Restart taskflow-api
+
+- name: Déployer l'unité systemd taskflow-api
+  ansible.builtin.template:
+    src: taskflow-api.service.j2
+    dest: /etc/systemd/system/taskflow-api.service
+    mode: "0644"
+  notify: Restart taskflow-api
+
+# ── 5. Bascule atomique : current -> releases/<n> ────────────────────────────
+- name: Basculer le lien current vers la nouvelle release
+  ansible.builtin.file:
+    src: "{{ app_release_dir }}"
+    dest: "{{ app_current }}"
+    state: link
+    force: true
+  notify: Restart taskflow-api
+
+- name: Activer et démarrer l'API
+  ansible.builtin.systemd:
+    name: taskflow-api
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# ── 6. nginx : front statique + proxy vers l'API ─────────────────────────────
+- name: Déployer le vhost nginx de TaskFlow
+  ansible.builtin.template:
+    src: nginx-taskflow.conf.j2
+    dest: "/etc/nginx/sites-available/{{ app_name }}.conf"
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Activer le site TaskFlow
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ app_name }}.conf"
+    dest: "/etc/nginx/sites-enabled/{{ app_name }}.conf"
+    state: link
+  notify: Reload nginx
+
+- name: Désactiver le site nginx par défaut
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload nginx
+
+- name: S'assurer que nginx est démarré et activé au boot
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true
+
+- name: Vérifier si UFW est installé
+  ansible.builtin.stat:
+    path: /usr/sbin/ufw
+  register: ufw_bin
+
+- name: Ouvrir les ports HTTP et node_exporter dans UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "{{ app_http_port }}"
+    - "9100"
+  when: ufw_bin.stat.exists
+
+# ── 7. Ménage : ne garder que les N dernières releases ───────────────────────
+- name: Lister les releases présentes
+  ansible.builtin.find:
+    paths: "{{ app_root }}/releases"
+    file_type: directory
+  register: releases_found
+
+- name: Supprimer les releases les plus anciennes (garde {{ keep_releases }})
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ (releases_found.files | sort(attribute='mtime'))[:-(keep_releases | int)] if releases_found.files | length > keep_releases | int else [] }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+# Les handlers (restart API / reload nginx) s'exécutent ici, avant le
+# post_tasks de vérification du playbook.
+- name: Appliquer les handlers
+  ansible.builtin.meta: flush_handlers

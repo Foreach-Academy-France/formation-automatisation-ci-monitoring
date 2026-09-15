@@ -1,0 +1,6 @@
+---
+# TODO J3 : compléter (version, port, user, URL de téléchargement selon l'architecture)
+node_exporter_version: "1.8.2"
+node_exporter_port: 9100
+node_exporter_user: node_exporter
+node_exporter_bin: /usr/local/bin/node_exporter

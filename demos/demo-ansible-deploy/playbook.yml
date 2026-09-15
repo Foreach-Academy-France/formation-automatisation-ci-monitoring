@@ -1,0 +1,38 @@
+---
+# Démo J2 — bloc 2.2 : déploiement par releases + lien current (en local, sans VM)
+#   ansible-playbook playbook.yml -e version=1 ; -e version=2 ; puis rollback -e version=1
+# Observer : ls -la /tmp/demo-app/  → current -> releases/2
+- name: Déploiement "releases + current"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    root: /tmp/demo-app
+    keep: 3
+  tasks:
+    - name: Créer la release {{ version }}
+      ansible.builtin.copy:
+        dest: "{{ root }}/releases/{{ version }}/index.html"
+        content: "<h1>TaskFlow v{{ version }}</h1>\n"
+        mode: "0644"
+
+    - name: Basculer current (atomique)
+      ansible.builtin.file:
+        src: "{{ root }}/releases/{{ version }}"
+        dest: "{{ root }}/current"
+        state: link
+        force: true
+
+    - name: Purger les vieilles releases (garde {{ keep }})
+      ansible.builtin.find:
+        paths: "{{ root }}/releases"
+        file_type: directory
+      register: rel
+    - ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ (rel.files | sort(attribute='mtime'))[:-keep] if rel.files | length > keep else [] }}"
+      loop_control: { label: "{{ item.path }}" }
+
+    - ansible.builtin.debug:
+        msg: "{{ lookup('file', root ~ '/current/index.html') }}"

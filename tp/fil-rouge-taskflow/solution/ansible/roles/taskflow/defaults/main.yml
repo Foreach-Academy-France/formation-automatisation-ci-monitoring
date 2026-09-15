@@ -1,0 +1,22 @@
+---
+# Valeurs par défaut du rôle taskflow (surchargées par group_vars/*.yml)
+app_name: taskflow
+app_root: /opt/taskflow            # releases/<n>, current -> releases/<n>, shared/
+app_user: taskflow                 # utilisateur système qui exécute l'API
+app_http_port: 80
+app_server_name: _                 # "_" = vhost par défaut (n'importe quel Host)
+app_env: local
+api_port: 3000
+api_secret: "change-me"
+keep_releases: 5                   # releases conservées pour rollback
+node_major: 20                     # dépôt NodeSource
+
+# Sources locales (sur le nœud de contrôle = le runner) : dist/ et api/ sont
+# à la racine du repo, le playbook est dans ansible/playbooks/
+app_dist_local: "{{ playbook_dir }}/../../dist"
+app_api_local: "{{ playbook_dir }}/../../api"
+
+# Chemins dérivés
+app_release_dir: "{{ app_root }}/releases/{{ app_version }}"
+app_current: "{{ app_root }}/current"
+app_shared: "{{ app_root }}/shared"

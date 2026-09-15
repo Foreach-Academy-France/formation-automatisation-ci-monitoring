@@ -1,0 +1,8 @@
+---
+# Modèle de prod.yml AVANT chiffrement. Procédure :
+#   1. cp prod.yml.example prod.yml   (puis renseigner les valeurs)
+#   2. ansible-vault encrypt prod.yml
+#   3. le mot de passe Vault est stocké dans le secret GitHub ANSIBLE_VAULT_PASSWORD (environments staging et production)
+app_env: prod
+app_server_name: taskflow.local
+api_secret: "CHANGE_ME"

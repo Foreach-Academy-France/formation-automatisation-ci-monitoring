@@ -1,0 +1,19 @@
+---
+# =============================================================================
+# deploy.yml — déploie TaskFlow sur un environnement (version de départ).
+#
+#   ansible-playbook -i inventory/hosts.ini playbooks/deploy.yml -l staging -e app_version=42
+#
+# TODO J2 :
+#   - pre_tasks : vérifier que app_version est défini et que dist/ existe
+#   - post_tasks : vérifier http://127.0.0.1:{{ api_port }}/health (module uri)
+#   - créer playbooks/rollback.yml (rebascule le lien current)
+# TODO J3 : créer playbooks/monitoring.yml (rôle node_exporter)
+# =============================================================================
+- name: Déployer TaskFlow
+  hosts: web
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: taskflow

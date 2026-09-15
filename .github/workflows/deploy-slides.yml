@@ -1,0 +1,326 @@
+name: Deploy Slides to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Slides
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install Marp CLI
+        run: bun add -g @marp-team/marp-cli
+
+      - name: Install Pandoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc texlive-xetex texlive-fonts-recommended fonts-noto-color-emoji
+
+      - name: Create output directories
+        run: |
+          mkdir -p public/slides
+          mkdir -p public/pdf
+          mkdir -p public/tp-pdf
+
+      - name: Build HTML slides
+        run: |
+          for slide in slides/*.md; do
+            echo "Building $(basename $slide)..."
+            marp "$slide" --html --allow-local-files -o "public/slides/$(basename $slide .md).html"
+          done
+
+      - name: Build PDF slides
+        run: |
+          for slide in slides/*.md; do
+            echo "Building PDF for $(basename $slide)..."
+            marp "$slide" --html --allow-local-files --pdf -o "public/pdf/$(basename $slide .md).pdf"
+          done
+
+      - name: Build TP PDFs
+        run: |
+          # Un PDF par énoncé de TP (fil rouge) + les READMEs TP
+          for tp in tp/fil-rouge-taskflow/jour*.md tp/fil-rouge-taskflow/README.md tp/README.md; do
+            [ -f "$tp" ] || continue
+            name=$(basename "$tp" .md)
+            case "$tp" in
+              tp/README.md) name="tp-overview" ;;
+              tp/fil-rouge-taskflow/README.md) name="fil-rouge-taskflow" ;;
+            esac
+            echo "Generating PDF for $tp -> $name.pdf ..."
+            pandoc "$tp" \
+              -o "public/tp-pdf/${name}.pdf" \
+              --pdf-engine=xelatex \
+              -V geometry:margin=2cm \
+              -V documentclass=article \
+              -V fontsize=11pt \
+              -V mainfont="DejaVu Sans" \
+              -V monofont="DejaVu Sans Mono" \
+              -V colorlinks=true \
+              --toc \
+              --highlight-style=tango || echo "::warning::PDF failed for $tp"
+          done
+
+      - name: Copy additional files
+        run: |
+          # NB : evaluation/qcm-corrige.md est gitignoré → absent du checkout → jamais publié
+          [ -d tp ] && cp -r tp public/
+          [ -d evaluation ] && cp -r evaluation public/
+          [ -d ressources ] && cp -r ressources public/
+          [ -d demos ] && cp -r demos public/
+          cp README.md plan-cours.md public/
+
+      - name: Create index.html
+        run: |
+          cat > public/index.html << 'HTML'
+          <!DOCTYPE html>
+          <html lang="fr">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Formation Automatisation CI & Monitoring | ForEach Academy</title>
+              <style>
+                  * { margin: 0; padding: 0; box-sizing: border-box; }
+                  body {
+                      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                      line-height: 1.6; color: #333;
+                      background: linear-gradient(135deg, #E6522C 0%, #9f3316 100%);
+                      min-height: 100vh; padding: 2rem;
+                  }
+                  .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 20px; padding: 3rem; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+                  header { text-align: center; margin-bottom: 3rem; padding-bottom: 2rem; border-bottom: 3px solid #E6522C; }
+                  h1 { color: #E6522C; font-size: 2.5rem; margin-bottom: 0.5rem; }
+                  .icon { font-size: 3rem; margin-bottom: 1rem; }
+                  .subtitle { color: #666; font-size: 1.2rem; }
+                  .info { background: #f7f7f7; padding: 1.5rem; border-radius: 10px; margin: 2rem 0; }
+                  .info p { margin: 0.5rem 0; }
+                  .section { margin: 2rem 0; }
+                  .section h2 { color: #9f3316; margin-bottom: 1rem; font-size: 1.8rem; }
+                  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; margin-top: 1rem; }
+                  .card { background: #fff; border: 2px solid #e0e0e0; border-radius: 10px; padding: 1.5rem; transition: all 0.3s ease; }
+                  .card:hover { border-color: #E6522C; transform: translateY(-5px); box-shadow: 0 10px 30px rgba(230, 82, 44, 0.2); }
+                  .card h3 { color: #E6522C; margin-bottom: 0.5rem; }
+                  .card p { color: #666; font-size: 0.9rem; margin-bottom: 1rem; }
+                  .links { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+                  .btn { display: inline-block; padding: 0.5rem 1rem; background: #E6522C; color: white; text-decoration: none; border-radius: 5px; font-size: 0.9rem; transition: background 0.3s ease; }
+                  .btn:hover { background: #9f3316; }
+                  .btn-secondary { background: #48bb78; }
+                  .btn-secondary:hover { background: #38a169; }
+                  .btn-pdf { background: #4a5568; }
+                  .btn-pdf:hover { background: #2d3748; }
+                  footer { text-align: center; margin-top: 3rem; padding-top: 2rem; border-top: 2px solid #e0e0e0; color: #666; }
+                  .badge { display: inline-block; padding: 0.25rem 0.75rem; background: #48bb78; color: white; border-radius: 20px; font-size: 0.8rem; margin-left: 0.5rem; }
+                  .day-separator { background: linear-gradient(90deg, #E6522C 0%, #9f3316 100%); color: white; padding: 1rem; border-radius: 10px; margin: 2rem 0; text-align: center; font-size: 1.3rem; font-weight: bold; }
+                  .project-highlight { background: linear-gradient(135deg, #E6522C 0%, #9f3316 100%); color: white; padding: 2rem; border-radius: 15px; margin: 2rem 0; }
+                  .project-highlight h3 { color: white; margin-bottom: 1rem; }
+                  .project-highlight p { color: #ffe4dc; }
+                  .project-highlight .stack { margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
+                  .project-highlight .stack span { background: rgba(255, 255, 255, 0.2); padding: 0.3rem 0.8rem; border-radius: 5px; font-size: 0.85rem; border: 1px solid rgba(255, 255, 255, 0.3); }
+                  .chain { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.5rem; margin: 1.5rem 0; font-weight: bold; color: #9f3316; }
+                  .chain span { background: #fff3ee; border: 1px solid #E6522C; padding: 0.4rem 0.9rem; border-radius: 20px; }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <header>
+                      <div class="icon">🤖 📈</div>
+                      <h1>Formation Automatisation CI &amp; Monitoring</h1>
+                      <p class="subtitle">GitHub Actions · Ansible · Prometheus · Grafana · Alertmanager | ForEach Academy - M2 ESTD Architecte Web</p>
+                  </header>
+
+                  <div class="info">
+                      <p><strong>📅 Durée:</strong> 4 jours (7h/jour) — dates à confirmer</p>
+                      <p><strong>👨‍🏫 Formateur:</strong> Fabrice Claeys</p>
+                      <p><strong>🎯 Objectif:</strong> Automatiser la chaîne build → test → déploiement et mettre en place un monitoring proactif</p>
+                      <p><strong>📋 Prérequis:</strong> Initialisation CI (GitHub Actions), Ansible &amp; Kubernetes, Docker</p>
+                      <p><strong>📄 Documents:</strong> <a href="README.md">README</a> · <a href="plan-cours.md">Plan de cours détaillé</a></p>
+                  </div>
+
+                  <div class="chain">
+                      <span>commit</span><span>→</span><span>build</span><span>→</span><span>test</span><span>→</span><span>déploiement</span><span>→</span><span>monitoring</span><span>→</span><span>alerte</span>
+                  </div>
+
+                  <div class="project-highlight">
+                      <h3>🚀 Projet Fil Rouge : TaskFlow « opérée »</h3>
+                      <p>Application TaskFlow (front + API Node) prise en charge de bout en bout sur 4 jours : runner self-hosted et CI factorisé → déploiement Ansible staging/prod → instrumentation et dashboards → alertes et notifications</p>
+                      <div class="stack">
+                          <span>GitHub Actions</span>
+                          <span>Runner self-hosted</span>
+                          <span>Docker</span>
+                          <span>Ansible</span>
+                          <span>Multipass</span>
+                          <span>Node.js</span>
+                          <span>Prometheus</span>
+                          <span>Grafana</span>
+                          <span>Alertmanager</span>
+                      </div>
+                  </div>
+
+                  <div class="section">
+                      <div class="day-separator">📅 Jour 1 - Automatiser et opérer le système CI</div>
+                      <div class="grid">
+                          <div class="card">
+                              <h3>Jour 1: Runner self-hosted &amp; CI factorisé <span class="badge">Disponible</span></h3>
+                              <p>SaaS vs self-hosted • Runner self-hosted • Actions composites • Workflows réutilisables • Build &amp; tests (JUnit, coverage, Maven/Gradle)</p>
+                              <div class="links">
+                                  <a href="slides/jour1-systeme-ci-runner-workflows.html" class="btn">🖥️ Slides HTML</a>
+                                  <a href="pdf/jour1-systeme-ci-runner-workflows.pdf" class="btn btn-pdf">📄 PDF</a>
+                                  <a href="tp/fil-rouge-taskflow/jour1-runner-ci-factorise.md" class="btn btn-secondary">📝 TP1</a>
+                                  <a href="tp-pdf/jour1-runner-ci-factorise.pdf" class="btn btn-pdf">📥 TP1 PDF</a>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+
+                  <div class="section">
+                      <div class="day-separator">📅 Jour 2 - Automatiser le déploiement</div>
+                      <div class="grid">
+                          <div class="card">
+                              <h3>Jour 2: Déploiement GitHub Actions + Ansible <span class="badge">Disponible</span></h3>
+                              <p>CI → CD • Artefact immuable • Stratégies de déploiement • Environments &amp; approbation • Ansible piloté par le workflow • Rollback</p>
+                              <div class="links">
+                                  <a href="slides/jour2-deploiement-automatise.html" class="btn">🖥️ Slides HTML</a>
+                                  <a href="pdf/jour2-deploiement-automatise.pdf" class="btn btn-pdf">📄 PDF</a>
+                                  <a href="tp/fil-rouge-taskflow/jour2-deploiement-ansible.md" class="btn btn-secondary">📝 TP2</a>
+                                  <a href="tp-pdf/jour2-deploiement-ansible.pdf" class="btn btn-pdf">📥 TP2 PDF</a>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+
+                  <div class="section">
+                      <div class="day-separator">📅 Jour 3 - Introduction au monitoring</div>
+                      <div class="grid">
+                          <div class="card">
+                              <h3>Jour 3: Prometheus &amp; Grafana <span class="badge">Disponible</span></h3>
+                              <p>KPI, golden signals, SLI/SLO • Prometheus &amp; PromQL • Instrumentation prom-client • node_exporter • Dashboards provisionnés</p>
+                              <div class="links">
+                                  <a href="slides/jour3-monitoring-prometheus-grafana.html" class="btn">🖥️ Slides HTML</a>
+                                  <a href="pdf/jour3-monitoring-prometheus-grafana.pdf" class="btn btn-pdf">📄 PDF</a>
+                                  <a href="tp/fil-rouge-taskflow/jour3-monitoring-prometheus.md" class="btn btn-secondary">📝 TP3</a>
+                                  <a href="tp-pdf/jour3-monitoring-prometheus.pdf" class="btn btn-pdf">📥 TP3 PDF</a>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+
+                  <div class="section">
+                      <div class="day-separator">📅 Jour 4 - Monitoring avancé, alerting &amp; bonnes pratiques</div>
+                      <div class="grid">
+                          <div class="card">
+                              <h3>Jour 4: Alerting &amp; observabilité <span class="badge">Disponible</span></h3>
+                              <p>Infra (node_exporter, cAdvisor, blackbox) • Règles d'alerte • Alertmanager &amp; notifications • Tendances • Monitoring as code • QCM final</p>
+                              <div class="links">
+                                  <a href="slides/jour4-alerting-observabilite.html" class="btn">🖥️ Slides HTML</a>
+                                  <a href="pdf/jour4-alerting-observabilite.pdf" class="btn btn-pdf">📄 PDF</a>
+                                  <a href="tp/fil-rouge-taskflow/jour4-alerting-monitoring-complet.md" class="btn btn-secondary">📝 TP4</a>
+                                  <a href="tp-pdf/jour4-alerting-monitoring-complet.pdf" class="btn btn-pdf">📥 TP4 PDF</a>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+
+                  <div class="section">
+                      <h2>📝 Évaluation</h2>
+                      <div class="grid">
+                          <div class="card">
+                              <h3>Projet TaskFlow (100%)</h3>
+                              <p>État final du repository - 100 points (4 blocs de 25)</p>
+                              <div class="links">
+                                  <a href="evaluation/grille-evaluation.md" class="btn">📊 Grille</a>
+                                  <a href="evaluation/README.md" class="btn btn-secondary">ℹ️ Modalités</a>
+                              </div>
+                          </div>
+                          <div class="card">
+                              <h3>QCM Final (100%)</h3>
+                              <p>30 questions - 45 minutes</p>
+                              <div class="links">
+                                  <a href="evaluation/qcm.md" class="btn">📋 QCM</a>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+
+                  <div class="section">
+                      <h2>📚 Ressources</h2>
+                      <div class="grid">
+                          <div class="card">
+                              <h3>📖 Documentation officielle</h3>
+                              <p>Références des outils du cours</p>
+                              <div class="links">
+                                  <a href="https://docs.github.com/en/actions" class="btn" target="_blank">GitHub Actions</a>
+                                  <a href="https://docs.ansible.com/ansible/latest/" class="btn" target="_blank">Ansible</a>
+                                  <a href="https://prometheus.io/docs/" class="btn" target="_blank">Prometheus</a>
+                                  <a href="https://grafana.com/docs/grafana/latest/" class="btn" target="_blank">Grafana</a>
+                                  <a href="https://sre.google/sre-book/monitoring-distributed-systems/" class="btn" target="_blank">SRE Book</a>
+                              </div>
+                          </div>
+                          <div class="card">
+                              <h3>🧾 Aide-mémoire</h3>
+                              <p>Cheatsheets distribuées</p>
+                              <div class="links">
+                                  <a href="ressources/cheatsheet-github-actions.md" class="btn btn-secondary">GitHub Actions</a>
+                                  <a href="ressources/cheatsheet-prometheus.md" class="btn btn-secondary">Prometheus &amp; PromQL</a>
+                                  <a href="ressources/cheatsheet-alerting.md" class="btn btn-secondary">Alerting</a>
+                              </div>
+                          </div>
+                          <div class="card">
+                              <h3>🚀 Lab &amp; projet starter</h3>
+                              <p>Point de départ du fil rouge et installation du lab</p>
+                              <div class="links">
+                                  <a href="tp/fil-rouge-taskflow/README.md" class="btn">TaskFlow Starter</a>
+                                  <a href="ressources/setup-lab.md" class="btn btn-secondary">Setup Lab</a>
+                                  <a href="ressources/lab/runner/README.md" class="btn btn-secondary">Runner self-hosted (Docker)</a>
+                                  <a href="demos/README.md" class="btn btn-secondary">Démos</a>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+
+                  <footer>
+                      <p><strong>ForEach Academy / IEF2I - Digital School of Paris</strong></p>
+                      <p>Référent: Michael MAVRODIS | michaelmavrodis@formateur.ief2i.fr</p>
+                      <p style="margin-top: 1rem; font-size: 0.9rem; color: #999;">
+                          ⚙️ Site généré automatiquement avec GitHub Actions et Marp CLI
+                      </p>
+                  </footer>
+              </div>
+          </body>
+          </html>
+          HTML
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './public'
+
+  deploy:
+    name: Deploy to GitHub Pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

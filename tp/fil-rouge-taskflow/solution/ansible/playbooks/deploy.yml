@@ -1,0 +1,48 @@
+---
+# =============================================================================
+# deploy.yml — déploie TaskFlow (front + API) sur un environnement.
+#
+# Appelé par le workflow GitHub Actions deploy.yml (job deploy-staging / deploy-prod) :
+#   ansible-playbook -i inventory/hosts.ini playbooks/deploy.yml \
+#     -l staging -e app_version=42 --vault-password-file .vault_pass
+#
+# Le build (dist/) a DÉJÀ été produit par le job build : le playbook ne
+# rebuild rien, il transporte l'artefact (job build → upload-artifact → download-artifact). "Build once, deploy many".
+# =============================================================================
+- name: Déployer TaskFlow
+  hosts: web
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Vérifier que la version à déployer est fournie
+      ansible.builtin.assert:
+        that:
+          - app_version is defined
+          - app_version | string | length > 0
+        fail_msg: "Passez -e app_version=<numéro de build>"
+
+    - name: Vérifier que le build est présent localement
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/../../dist/index.html"
+      delegate_to: localhost
+      become: false
+      register: dist_stat
+      failed_when: not dist_stat.stat.exists
+
+  roles:
+    - role: taskflow
+
+  post_tasks:
+    - name: Vérifier la santé de l'API (depuis la VM)
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ api_port }}/health"
+        return_content: true
+      register: health
+      retries: 5
+      delay: 2
+      until: health.status == 200
+
+    - name: Afficher la version déployée
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} ({{ app_env }}) → {{ health.json }}"

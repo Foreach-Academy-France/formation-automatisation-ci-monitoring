@@ -1,0 +1,6 @@
+---
+# TODO J2 : compléter puis CHIFFRER ce fichier : ansible-vault encrypt prod.yml
+# (mot de passe = secret GitHub ANSIBLE_VAULT_PASSWORD de l'environment production)
+app_env: prod
+app_server_name: taskflow.local
+api_secret: "CHANGE_ME"

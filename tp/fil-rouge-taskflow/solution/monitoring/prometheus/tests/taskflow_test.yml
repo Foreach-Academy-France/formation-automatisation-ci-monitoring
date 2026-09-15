@@ -1,0 +1,98 @@
+# =============================================================================
+# Tests unitaires des règles d'alerte — promtool test rules taskflow_test.yml
+# =============================================================================
+# On simule des séries temporelles et on vérifie QUELLES alertes se déclenchent
+# à un instant donné. Exécuté par le job lint-monitoring du CI : une règle
+# modifiée par erreur casse le build, pas la production.
+#
+#   docker compose exec prometheus promtool test rules /etc/prometheus/tests/taskflow_test.yml
+# =============================================================================
+rule_files:
+  - ../rules/taskflow.yml
+
+evaluation_interval: 15s
+
+tests:
+  # ── Cas 1 : l'API staging ne répond plus → TaskFlowApiDown après 1 min ────
+  - name: TaskFlowApiDown se déclenche quand la sonde échoue
+    interval: 15s
+    input_series:
+      - series: 'probe_success{job="blackbox-http", env="staging", instance="http://192.168.64.11/health"}'
+        values: '1 1 1 1 0 0 0 0 0 0 0 0'        # OK pendant 1 min puis KO pendant 2 min
+      - series: 'probe_success{job="blackbox-http", env="prod", instance="http://192.168.64.12/health"}'
+        values: '1x11'                          # prod toujours OK
+    alert_rule_test:
+      - eval_time: 1m                           # sonde encore OK : rien
+        alertname: TaskFlowApiDown
+        exp_alerts: []
+      - eval_time: 1m30s                        # KO depuis 30 s : pending (for: 1m) → pas encore firing
+        alertname: TaskFlowApiDown
+        exp_alerts: []
+      - eval_time: 3m                           # KO depuis 2 min : firing, uniquement staging
+        alertname: TaskFlowApiDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: blackbox-http
+              env: staging
+              instance: http://192.168.64.11/health
+            exp_annotations:
+              summary: "TaskFlow staging ne répond plus sur /health"
+              description: "La sonde blackbox sur http://192.168.64.11/health échoue depuis 1 min. Vérifier nginx et le service taskflow-api sur la VM."
+              runbook_url: "https://github.com/<vous>/taskflow-ops/blob/main/docs/runbooks/TaskFlowApiDown.md"
+
+  # ── Cas 2 : 10 % d'erreurs 5xx → HighErrorRate après 5 min ─────────────────
+  - name: HighErrorRate se déclenche au-dessus de 5 % d'erreurs
+    interval: 15s
+    input_series:
+      # 100 requêtes/15 s dont 10 en 500 → ratio 10 %
+      - series: 'http_requests_total{job="taskflow-api", env="prod", method="GET", route="/api/tasks", status_code="200"}'
+        values: '0+90x60'
+      - series: 'http_requests_total{job="taskflow-api", env="prod", method="GET", route="/api/boom", status_code="500"}'
+        values: '0+10x60'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: HighErrorRate
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              env: prod
+            exp_annotations:
+              summary: "Taux d'erreur élevé sur TaskFlow prod"
+              description: "10% des requêtes renvoient une 5xx depuis 5 min (seuil 5 %)."
+              runbook_url: "https://github.com/<vous>/taskflow-ops/blob/main/docs/runbooks/HighErrorRate.md"
+    promql_expr_test:
+      - expr: job:http_errors:ratio5m{env="prod"}
+        eval_time: 12m
+        exp_samples:
+          - labels: 'job:http_errors:ratio5m{env="prod"}'
+            value: 0.1
+
+  # ── Cas 3 : nominal → aucune alerte (sauf Watchdog) ─────────────────────────
+  - name: Aucune alerte au nominal
+    interval: 15s
+    input_series:
+      - series: 'probe_success{job="blackbox-http", env="staging", instance="http://192.168.64.11/health"}'
+        values: '1x40'
+      - series: 'http_requests_total{job="taskflow-api", env="staging", method="GET", route="/api/tasks", status_code="200"}'
+        values: '0+100x40'
+      - series: 'up{job="taskflow-api", env="staging", instance="192.168.64.11:80"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TaskFlowApiDown
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: HighErrorRate
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: InstanceDown
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: Watchdog
+        exp_alerts:
+          - exp_labels:
+              severity: none
+            exp_annotations:
+              summary: "Watchdog : la chaîne d'alerting fonctionne"
+              description: "Cette alerte doit TOUJOURS être active. Son absence signifie que Prometheus ou Alertmanager est en panne."

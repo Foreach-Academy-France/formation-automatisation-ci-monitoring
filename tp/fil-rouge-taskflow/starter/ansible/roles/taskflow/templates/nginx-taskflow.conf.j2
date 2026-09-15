@@ -1,0 +1,17 @@
+# {{ ansible_managed }}
+# Configuration nginx pour {{ app_name }} — générée par Ansible
+server {
+    listen {{ app_http_port }};
+    server_name {{ app_server_name }};
+
+    root {{ app_web_root }};
+    index index.html;
+
+    # SPA : toutes les routes retombent sur index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    access_log /var/log/nginx/{{ app_name }}_access.log;
+    error_log  /var/log/nginx/{{ app_name }}_error.log;
+}

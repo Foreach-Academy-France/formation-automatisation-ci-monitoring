@@ -1,0 +1,28 @@
+{
+  "name": "formation-automatisation-ci-monitoring",
+  "version": "1.0.0",
+  "description": "Formation de 4 jours sur l'automatisation du système CI (GitHub Actions, runner self-hosted, Ansible) et le monitoring (Prometheus, Grafana, Alertmanager) - M2 ESTD Architecte Web",
+  "scripts": {
+    "slides": "marp --input-dir slides --output dist",
+    "slides:watch": "marp --input-dir slides --output dist --watch",
+    "slides:server": "marp --input-dir slides --server",
+    "build": "marp --input-dir slides --output dist --html"
+  },
+  "devDependencies": {
+    "@marp-team/marp-cli": "^4.0.0"
+  },
+  "keywords": [
+    "formation",
+    "github-actions",
+    "self-hosted-runner",
+    "ansible",
+    "prometheus",
+    "grafana",
+    "monitoring",
+    "ci-cd",
+    "devops",
+    "teaching"
+  ],
+  "author": "Fabrice Claeys",
+  "license": "MIT"
+}

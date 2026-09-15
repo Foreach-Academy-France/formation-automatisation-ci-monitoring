@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+public/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+*.pdf
+
+# Ansible
+*.retry
+.vault_pass
+vault_pass.txt
+
+# Runner self-hosted (données locales du lab)
+ressources/lab/runner/.env
+ressources/lab/runner/work/
+
+# Grafana / Prometheus (données locales)
+**/monitoring/data/
+
+# Corrigé QCM — NE JAMAIS PUBLIER (dépôt public + GitHub Pages)
+evaluation/qcm-corrige.md
+
+# Alertmanager réel (contient le webhook) — seul alertmanager.example.yml est versionné
+**/monitoring/alertmanager/alertmanager.yml
+!tp/fil-rouge-taskflow/solution/monitoring/alertmanager/alertmanager.yml

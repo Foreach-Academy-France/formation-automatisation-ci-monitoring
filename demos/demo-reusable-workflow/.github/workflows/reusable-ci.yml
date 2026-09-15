@@ -1,0 +1,23 @@
+# Workflow RÉUTILISABLE : ne se déclenche jamais seul
+name: Reusable CI
+on:
+  workflow_call:
+    inputs:
+      working-directory: { required: true, type: string }
+    outputs:
+      version:
+        value: ${{ jobs.test.outputs.version }}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node-project
+        with: { working-directory: '${{ inputs.working-directory }}' }
+      - run: npm test
+        working-directory: ${{ inputs.working-directory }}
+      - id: v
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+        working-directory: ${{ inputs.working-directory }}

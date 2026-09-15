@@ -1,0 +1,135 @@
+# =============================================================================
+# Règles Prometheus de TaskFlow : recording rules + alertes
+# =============================================================================
+# Validation : promtool check rules taskflow.yml   (job lint-monitoring du CI)
+#
+# Conventions :
+#   - severity: critical → réveille quelqu'un (route Discord)
+#   - severity: warning  → à traiter dans la journée (route mail)
+#   - chaque alerte porte summary / description / runbook_url (docs/runbooks/)
+#   - `for:` évite les alertes sur un pic isolé
+# =============================================================================
+groups:
+  # ── Recording rules : pré-calculer les requêtes coûteuses / réutilisées ────
+  - name: taskflow.rules
+    interval: 30s
+    rules:
+      # Requêtes/s par environnement
+      - record: job:http_requests:rate5m
+        expr: sum by (env) (rate(http_requests_total{job="taskflow-api"}[5m]))
+
+      # Ratio d'erreurs 5xx par environnement (0..1)
+      - record: job:http_errors:ratio5m
+        expr: |
+          sum by (env) (rate(http_requests_total{job="taskflow-api", status_code=~"5.."}[5m]))
+          /
+          sum by (env) (rate(http_requests_total{job="taskflow-api"}[5m]))
+
+      # Latence p95 par environnement
+      - record: job:http_request_duration_seconds:p95_5m
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le, env) (rate(http_request_duration_seconds_bucket{job="taskflow-api"}[5m]))
+          )
+
+  # ── Alertes ─────────────────────────────────────────────────────────────────
+  - name: taskflow.alerts
+    rules:
+      # Dead man's switch : toujours en feu. Si elle disparaît côté récepteur,
+      # c'est la chaîne Prometheus → Alertmanager → notification qui est cassée.
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: "Watchdog : la chaîne d'alerting fonctionne"
+          description: "Cette alerte doit TOUJOURS être active. Son absence signifie que Prometheus ou Alertmanager est en panne."
+
+      - alert: InstanceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Cible {{ $labels.job }}/{{ $labels.instance }} injoignable"
+          description: "Prometheus n'arrive plus à scraper {{ $labels.instance }} (job {{ $labels.job }}, env {{ $labels.env }}) depuis plus d'une minute."
+          runbook_url: "https://github.com/<vous>/taskflow-ops/blob/main/docs/runbooks/InstanceDown.md"
+
+      # Boîte noire : la sonde HTTP /health échoue (nginx, API ou réseau)
+      - alert: TaskFlowApiDown
+        expr: probe_success{job="blackbox-http"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TaskFlow {{ $labels.env }} ne répond plus sur /health"
+          description: "La sonde blackbox sur {{ $labels.instance }} échoue depuis 1 min. Vérifier nginx et le service taskflow-api sur la VM."
+          runbook_url: "https://github.com/<vous>/taskflow-ops/blob/main/docs/runbooks/TaskFlowApiDown.md"
+
+      # Symptôme : plus de 5 % d'erreurs 5xx sur 5 minutes
+      - alert: HighErrorRate
+        expr: job:http_errors:ratio5m > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Taux d'erreur élevé sur TaskFlow {{ $labels.env }}"
+          description: "{{ $value | humanizePercentage }} des requêtes renvoient une 5xx depuis 5 min (seuil 5 %)."
+          runbook_url: "https://github.com/<vous>/taskflow-ops/blob/main/docs/runbooks/HighErrorRate.md"
+
+      # Symptôme : latence p95 > 300 ms (SLO du cours)
+      - alert: HighLatencyP95
+        expr: job:http_request_duration_seconds:p95_5m > 0.3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latence p95 dégradée sur TaskFlow {{ $labels.env }}"
+          description: "p95 = {{ $value | humanizeDuration }} depuis 5 min (SLO : 300 ms)."
+          runbook_url: "https://github.com/<vous>/taskflow-ops/blob/main/docs/runbooks/HighLatencyP95.md"
+
+      # Infra : CPU > 80 % pendant 10 min
+      - alert: HostHighCpu
+        expr: 100 - (avg by (instance, env) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU > 80 % sur {{ $labels.instance }}"
+          description: "Utilisation CPU moyenne : {{ $value | printf \"%.0f\" }} % depuis 10 min ({{ $labels.env }})."
+          runbook_url: "https://github.com/<vous>/taskflow-ops/blob/main/docs/runbooks/HostHighCpu.md"
+
+      # Infra : mémoire disponible < 10 %
+      - alert: HostOutOfMemory
+        expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Mémoire disponible < 10 % sur {{ $labels.instance }}"
+          description: "Il reste {{ $value | printf \"%.1f\" }} % de mémoire disponible ({{ $labels.env }})."
+          runbook_url: "https://github.com/<vous>/taskflow-ops/blob/main/docs/runbooks/HostOutOfMemory.md"
+
+      # Capacité : à ce rythme, le disque sera plein dans 4 h
+      - alert: DiskWillFillIn4h
+        expr: |
+          predict_linear(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs", mountpoint="/"}[1h], 4 * 3600) < 0
+          and node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs", mountpoint="/"} > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disque bientôt plein sur {{ $labels.instance }}"
+          description: "Au rythme actuel, {{ $labels.mountpoint }} sera plein dans moins de 4 heures ({{ $labels.env }})."
+          runbook_url: "https://github.com/<vous>/taskflow-ops/blob/main/docs/runbooks/DiskWillFillIn4h.md"
+
+      # Conteneurs (cAdvisor) : redémarrages en boucle
+      - alert: ContainerRestarting
+        expr: increase(container_restart_count{name!=""}[15m]) > 3
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Le conteneur {{ $labels.name }} redémarre en boucle"
+          description: "{{ $value | printf \"%.0f\" }} redémarrages sur les 15 dernières minutes."
+          runbook_url: "https://github.com/<vous>/taskflow-ops/blob/main/docs/runbooks/ContainerRestarting.md"

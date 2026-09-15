@@ -1,0 +1,19 @@
+# =============================================================================
+# Règles Prometheus de TaskFlow — À COMPLÉTER AU JOUR 4 (TP4, étape 2)
+# Validation : promtool check rules taskflow.yml
+# =============================================================================
+groups:
+  # TODO J4 : groupe taskflow.rules (recording rules job:http_requests:rate5m, job:http_errors:ratio5m)
+
+  - name: taskflow.alerts
+    rules:
+      # Dead man's switch : toujours active. Si elle disparaît, l'alerting est cassé.
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: "Watchdog : la chaîne d'alerting fonctionne"
+
+      # TODO J4 : InstanceDown, TaskFlowApiDown, HighErrorRate, HighLatencyP95,
+      #           HostHighCpu, DiskWillFillIn4h (+ severity, summary, description, runbook_url)

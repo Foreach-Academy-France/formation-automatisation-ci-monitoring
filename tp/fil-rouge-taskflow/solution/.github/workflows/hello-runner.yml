@@ -1,0 +1,46 @@
+# =============================================================================
+# hello-runner.yml — premier job sur le runner self-hosted (TP1, étape 1)
+# =============================================================================
+# Objectif : vérifier que le runner enregistré dans Settings → Actions → Runners
+# reçoit bien les jobs et dispose des outils du lab (Ansible, Node, Docker).
+#
+# `runs-on: [self-hosted, lab]` : le job n'est envoyé qu'à un runner qui porte
+# TOUS ces labels (self-hosted est ajouté automatiquement par GitHub).
+# =============================================================================
+name: Hello runner
+
+on:
+  workflow_dispatch: # déclenchement manuel (onglet Actions → Run workflow)
+
+jobs:
+  hello:
+    name: 👋 Hello depuis le runner self-hosted
+    runs-on: [self-hosted, lab]
+    timeout-minutes: 5
+
+    steps:
+      - name: Identité du runner
+        run: |
+          echo "Runner   : $RUNNER_NAME ($RUNNER_OS / $RUNNER_ARCH)"
+          echo "Hostname : $(hostname)"
+          echo "Workdir  : $RUNNER_WORKSPACE"
+          echo "Utilisateur : $(id)"
+
+      - name: Outils disponibles
+        run: |
+          ansible --version | head -1
+          node --version || echo "node absent"
+          docker --version || echo "docker absent"
+          rsync --version | head -1
+
+      - name: Résumé
+        run: |
+          {
+            echo "## Runner self-hosted opérationnel ✅"
+            echo ""
+            echo "| Outil | Version |"
+            echo "|---|---|"
+            echo "| Ansible | $(ansible --version | head -1) |"
+            echo "| Node | $(node --version 2>/dev/null || echo n/a) |"
+            echo "| Docker | $(docker --version 2>/dev/null || echo n/a) |"
+          } >> "$GITHUB_STEP_SUMMARY"

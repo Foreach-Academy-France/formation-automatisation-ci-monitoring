@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+[Unit]
+Description=TaskFlow API (Node.js) — {{ app_env }}
+After=network.target
+
+[Service]
+Type=simple
+User={{ app_user }}
+Group={{ app_user }}
+# Le lien `current` est résolu au démarrage : un rollback = rebasculer le lien + restart
+WorkingDirectory={{ app_current }}/api
+EnvironmentFile={{ app_shared }}/api.env
+ExecStart=/usr/bin/node src/server.js
+Restart=on-failure
+RestartSec=3
+# Durcissement minimal
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

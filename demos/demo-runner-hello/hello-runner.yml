@@ -1,0 +1,19 @@
+# À copier dans .github/workflows/ d'un repo de démo, puis Actions → Run workflow
+name: Demo hello runner
+on: [workflow_dispatch]
+jobs:
+  github-hosted:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Je tourne chez GitHub - $(hostname), $(nproc) CPU"
+      - run: |
+          ping -c 1 192.168.64.11 || echo "❌ Les VMs du lab sont injoignables depuis GitHub"
+  self-hosted:
+    runs-on: [self-hosted, lab]
+    steps:
+      - run: |
+          echo "Je tourne sur le poste - $(hostname)"
+      - run: |
+          ping -c 1 192.168.64.11 && echo "✅ Les VMs sont joignables depuis le runner"
+      - run: ansible --version | head -1

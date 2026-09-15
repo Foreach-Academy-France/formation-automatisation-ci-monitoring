@@ -1,0 +1,106 @@
+# =============================================================================
+# ci.yml — Intégration continue de TaskFlow opérée (front + API)
+# =============================================================================
+# Ce workflow ne contient presque plus de logique : il APPELLE le workflow
+# réutilisable reusable-node-ci.yml pour chaque projet Node du repo.
+# Ajouter un 3e service = 5 lignes.
+#
+# Évolution depuis le cours "Initialisation CI" :
+#   J1 : workflow réutilisable + action composite, appelé pour . et api/
+#   J1 : concurrency, paths-ignore, audit de dépendances
+#   J4 : job lint-monitoring (promtool / amtool) → le monitoring est du code,
+#        il est validé par le CI comme le reste.
+# =============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+# Un seul run de CI par branche : un nouveau push annule le run précédent
+# (inutile de tester un commit déjà dépassé).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  # ── Front (Vite) ──────────────────────────────────────────────────────────
+  front:
+    name: Front
+    uses: ./.github/workflows/reusable-node-ci.yml
+    with:
+      working-directory: .
+      artifact-name: front
+      upload-artifact: true
+
+  # ── API (Express) ─────────────────────────────────────────────────────────
+  api:
+    name: API
+    uses: ./.github/workflows/reusable-node-ci.yml
+    with:
+      working-directory: api
+      artifact-name: api
+      coverage-threshold: 80
+
+  # ── Audit des dépendances ─────────────────────────────────────────────────
+  # continue-on-error : informatif, ne bloque pas la PR (à durcir en prod).
+  audit:
+    name: 🔒 npm audit
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node-project
+      - name: Audit front
+        run: npm audit --audit-level=high
+      - name: Audit API
+        working-directory: api
+        run: npm ci && npm audit --audit-level=high
+
+  # ── Validation de la configuration de monitoring (J4) ─────────────────────
+  # `uses: docker://image` exécute un step dans un conteneur : on réutilise
+  # les binaires promtool / amtool des images officielles, sans rien installer.
+  lint-monitoring:
+    name: 📈 Lint monitoring (promtool / amtool)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: promtool check rules
+        uses: docker://prom/prometheus:v2.53.0
+        with:
+          entrypoint: promtool
+          args: check rules monitoring/prometheus/rules/taskflow.yml
+
+      - name: promtool check config (syntaxe)
+        uses: docker://prom/prometheus:v2.53.0
+        with:
+          entrypoint: promtool
+          args: check config --syntax-only monitoring/prometheus/prometheus.yml
+
+      # Tests unitaires des règles : on simule des séries et on vérifie les alertes
+      - name: promtool test rules
+        uses: docker://prom/prometheus:v2.53.0
+        with:
+          entrypoint: promtool
+          args: test rules monitoring/prometheus/tests/taskflow_test.yml
+
+      # Le vrai alertmanager.yml (avec le webhook) est gitignoré : on valide le modèle
+      - name: amtool check-config
+        uses: docker://prom/alertmanager:v0.27.0
+        with:
+          entrypoint: amtool
+          args: check-config monitoring/alertmanager/alertmanager.example.yml
