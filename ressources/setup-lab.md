@@ -191,3 +191,5 @@ cd ressources/lab/runner && docker compose ps   # runner Up
 | Prometheus : target `DOWN` sur `<ip>:9100` | node_exporter non déployé / UFW | lancer le workflow *Monitoring agents* ; `sudo ufw status` |
 | Grafana : annotation refusée (401) | token invalide ou rôle Viewer | service account avec rôle **Editor** |
 | Runner : *token expired* | token d'enregistrement > 1 h | régénérer le token, `docker compose up -d` |
+| Podman : `short-name "…" did not resolve to an alias` | Podman n'a pas de registre par défaut | toutes les images du cours sont préfixées `docker.io/` ; si vous en ajoutez une, qualifiez-la (`docker.io/prom/prometheus:…`) ou ajoutez `unqualified-search-registries = ["docker.io"]` dans `~/.config/containers/registries.conf` |
+| Podman : `uses: docker://…` ou `docker run` échoue dans un job | pas de socket Docker | activer le socket Podman (`systemctl --user enable --now podman.socket`) et monter `$XDG_RUNTIME_DIR/podman/podman.sock:/var/run/docker.sock` dans le compose du runner |

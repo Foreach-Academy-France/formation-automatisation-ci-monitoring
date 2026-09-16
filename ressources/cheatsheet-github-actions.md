@@ -118,7 +118,7 @@ steps:
 container: node:20-alpine
 services:
   postgres:
-    image: postgres:16
+    image: docker.io/postgres:16
     env: { POSTGRES_PASSWORD: test }
     options: --health-cmd pg_isready --health-interval 5s
 

@@ -10,7 +10,7 @@
 #
 #   docker compose build   (≈ 3 min la première fois)
 # =============================================================================
-FROM myoung34/github-runner:latest
+FROM docker.io/myoung34/github-runner:latest
 
 USER root
 ENV DEBIAN_FRONTEND=noninteractive

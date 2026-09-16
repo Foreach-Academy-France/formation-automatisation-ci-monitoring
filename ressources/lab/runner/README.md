@@ -43,6 +43,7 @@ docker compose exec runner ansible --version
 - *"Not configured"* / boucle au démarrage : token expiré → nouveau token.
 - Le runner apparaît **Offline** : `docker compose restart runner`.
 - Jobs en attente (*Waiting for a runner*) : labels du `runs-on` ≠ labels du runner.
+- **Podman** (`docker` = `podman-compose`) : les images sont déjà qualifiées `docker.io/…` ; pour les steps `docker run` / `uses: docker://`, remplacez le montage du socket par `$XDG_RUNTIME_DIR/podman/podman.sock:/var/run/docker.sock` après `systemctl --user enable --now podman.socket`.
 
 ## Alternative : installation native (sans Docker)
 

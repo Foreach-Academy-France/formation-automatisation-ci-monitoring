@@ -310,7 +310,7 @@ docker compose up -d && docker compose logs -f runner
 
 ```dockerfile
 # ressources/lab/runner/Dockerfile
-FROM myoung34/github-runner:latest
+FROM docker.io/myoung34/github-runner:latest
 
 # Outils nécessaires aux jobs de déploiement (J2) et de monitoring (J3)
 RUN apt-get update && apt-get install -y --no-install-recommends \

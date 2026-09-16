@@ -20,7 +20,7 @@ Dans `monitoring/docker-compose.yml`, décommentez / ajoutez :
 
 ```yaml
   alertmanager:
-    image: prom/alertmanager:v0.27.0
+    image: docker.io/prom/alertmanager:v0.27.0
     container_name: alertmanager
     ports: ["9093:9093"]
     volumes:
@@ -44,7 +44,7 @@ Dans `monitoring/docker-compose.yml`, décommentez / ajoutez :
     networks: [monitoring]
 
   blackbox-exporter:
-    image: prom/blackbox-exporter:v0.25.0
+    image: docker.io/prom/blackbox-exporter:v0.25.0
     container_name: blackbox-exporter
     ports: ["9115:9115"]
     volumes:
@@ -52,7 +52,7 @@ Dans `monitoring/docker-compose.yml`, décommentez / ajoutez :
     networks: [monitoring]
 
   mailhog:
-    image: mailhog/mailhog:v1.0.1
+    image: docker.io/mailhog/mailhog:v1.0.1
     container_name: mailhog
     ports: ["8025:8025", "1025:1025"]
     networks: [monitoring]
@@ -403,13 +403,13 @@ Ajoutez au compose :
 
 ```yaml
   loki:
-    image: grafana/loki:3.1.0
+    image: docker.io/grafana/loki:3.1.0
     ports: ["3100:3100"]
     command: -config.file=/etc/loki/local-config.yaml
     networks: [monitoring]
 
   promtail:
-    image: grafana/promtail:3.1.0
+    image: docker.io/grafana/promtail:3.1.0
     volumes:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro

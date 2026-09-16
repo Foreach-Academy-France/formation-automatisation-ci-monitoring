@@ -2,7 +2,7 @@
 # Ubuntu 22.04 + sshd + python3 : suffisant pour `ansible -m ping` et le
 # déploiement du front statique. PAS de systemd → l'API Node ne sera pas
 # gérée comme sur une vraie VM (voir README.md).
-FROM ubuntu:22.04
+FROM docker.io/ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       openssh-server sudo python3 rsync curl ca-certificates \

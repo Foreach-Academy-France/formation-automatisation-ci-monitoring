@@ -770,7 +770,7 @@ datasources:
 ```yaml
 # monitoring/docker-compose.yml (extrait)
 grafana:
-  image: grafana/grafana:11.1.0
+  image: docker.io/grafana/grafana:11.1.0
   ports: ["3001:3000"]
   environment:
     - GF_SECURITY_ADMIN_PASSWORD=admin

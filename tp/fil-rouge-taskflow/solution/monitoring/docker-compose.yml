@@ -17,7 +17,7 @@ name: taskflow-monitoring
 
 services:
   prometheus:
-    image: prom/prometheus:v2.53.0
+    image: docker.io/prom/prometheus:v2.53.0
     container_name: prometheus
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -37,7 +37,7 @@ services:
     restart: unless-stopped
 
   grafana:
-    image: grafana/grafana:11.1.0
+    image: docker.io/grafana/grafana:11.1.0
     container_name: grafana
     ports:
       - "3001:3000"                     # 3000 est pris par l'API TaskFlow en local
@@ -54,7 +54,7 @@ services:
     restart: unless-stopped
 
   alertmanager:
-    image: prom/alertmanager:v0.27.0
+    image: docker.io/prom/alertmanager:v0.27.0
     container_name: alertmanager
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
@@ -68,7 +68,7 @@ services:
     restart: unless-stopped
 
   node-exporter:
-    image: prom/node-exporter:v1.8.2
+    image: docker.io/prom/node-exporter:v1.8.2
     container_name: node-exporter
     command:
       - --path.rootfs=/host
@@ -96,7 +96,7 @@ services:
     restart: unless-stopped
 
   blackbox-exporter:
-    image: prom/blackbox-exporter:v0.25.0
+    image: docker.io/prom/blackbox-exporter:v0.25.0
     container_name: blackbox-exporter
     command:
       - --config.file=/etc/blackbox/blackbox.yml
@@ -108,7 +108,7 @@ services:
     restart: unless-stopped
 
   mailhog:
-    image: mailhog/mailhog:v1.0.1
+    image: docker.io/mailhog/mailhog:v1.0.1
     container_name: mailhog
     ports:
       - "8025:8025"                     # UI web

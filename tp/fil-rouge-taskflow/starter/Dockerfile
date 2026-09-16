@@ -8,7 +8,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 1 : Builder
 # ─────────────────────────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM docker.io/node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -27,7 +27,7 @@ RUN npm run build
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 2 : Production avec nginx
 # ─────────────────────────────────────────────────────────────────────────────
-FROM nginx:alpine
+FROM docker.io/nginx:alpine
 
 # Copie des fichiers buildés
 COPY --from=builder /app/dist /usr/share/nginx/html

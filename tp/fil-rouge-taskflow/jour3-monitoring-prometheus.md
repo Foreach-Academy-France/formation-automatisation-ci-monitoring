@@ -21,7 +21,7 @@ Le starter fournit `monitoring/docker-compose.yml` avec trois services. Vérifie
 ```yaml
 services:
   prometheus:
-    image: prom/prometheus:v2.53.0
+    image: docker.io/prom/prometheus:v2.53.0
     container_name: prometheus
     ports: ["9090:9090"]
     volumes:
@@ -37,7 +37,7 @@ services:
     networks: [monitoring]
 
   grafana:
-    image: grafana/grafana:11.1.0
+    image: docker.io/grafana/grafana:11.1.0
     container_name: grafana
     ports: ["3001:3000"]
     environment:
@@ -50,7 +50,7 @@ services:
     networks: [monitoring]
 
   node-exporter:
-    image: prom/node-exporter:v1.8.2
+    image: docker.io/prom/node-exporter:v1.8.2
     container_name: node-exporter
     ports: ["9100:9100"]
     command: ['--path.rootfs=/host']
