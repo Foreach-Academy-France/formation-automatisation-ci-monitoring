@@ -17,12 +17,15 @@ services:
     build: .
     image: taskflow-runner:latest
     container_name: taskflow-runner
-    env_file: .env                      # REPO_URL, RUNNER_TOKEN, RUNNER_NAME, LABELS
+    env_file: .env                      # REPO_URL + RUNNER_TOKEN obligatoires (cf. .env.example)
     environment:
       RUNNER_SCOPE: repo                # runner attaché à UN repo (org possible)
+      RUNNER_NAME: ${RUNNER_NAME:-lab-runner}
+      LABELS: ${LABELS:-self-hosted,lab,ansible}   # ← `runs-on: [self-hosted, lab]`
       RUNNER_WORKDIR: /tmp/runner/work  # workspace des jobs
-      EPHEMERAL: "false"                # true = 1 job puis sortie (plus sûr, plus lent)
-      DISABLE_AUTO_UPDATE: "true"       # on maîtrise la version via l'image
+      DISABLE_AUTO_UPDATE: "1"          # on maîtrise la version via l'image
+      # EPHEMERAL : NE PAS définir (même à "false") — l'image teste seulement
+      # si la variable existe. Définir EPHEMERAL=1 = 1 job puis sortie.
       ANSIBLE_HOST_KEY_CHECKING: "False"
     volumes:
       - ./work:/tmp/runner/work         # workspace persistant (inspectable depuis le poste)

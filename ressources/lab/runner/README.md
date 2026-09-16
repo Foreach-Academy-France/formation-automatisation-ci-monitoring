@@ -8,8 +8,9 @@ pour tout ce que GitHub ne peut pas atteindre : les VMs du lab, Grafana en local
 ```bash
 cd ressources/lab/runner
 cp .env.example .env
-# 1. GitHub → votre repo → Settings → Actions → Runners → New self-hosted runner
-# 2. copier le token après `--token` dans .env (RUNNER_TOKEN=…) — valable 1 h
+# 1. dans .env : REPO_URL=https://github.com/<vous>/taskflow-ops
+# 2. GitHub → votre repo → Settings → Actions → Runners → New self-hosted runner
+#    → copier le token après `--token` dans .env (RUNNER_TOKEN=…) — valable 1 h
 docker compose up -d --build
 docker compose logs -f runner        # attendre "Listening for Jobs"
 ```
@@ -40,6 +41,9 @@ docker compose up -d
 docker compose exec runner ansible --version
 ```
 
+- `REPO_URL required for repo runners` / `Invalid configuration provided for url` : `.env` incomplet → il faut **REPO_URL et RUNNER_TOKEN**.
+- `RUN_AS_ROOT env var is set to true but the user has been overridden` : l'image doit tourner en root dans le conteneur (ne pas ajouter `USER` dans le Dockerfile, ne pas passer `user:` dans le compose).
+- `Ephemeral option is enabled` alors que vous n'avez rien demandé : `EPHEMERAL` est défini (même à `false`) → supprimez la variable.
 - *"Not configured"* / boucle au démarrage : token expiré → nouveau token.
 - Le runner apparaît **Offline** : `docker compose restart runner`.
 - Jobs en attente (*Waiting for a runner*) : labels du `runs-on` ≠ labels du runner.

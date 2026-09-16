@@ -291,7 +291,7 @@ services:
       RUNNER_NAME: lab-runner
       LABELS: self-hosted,lab,ansible
       RUNNER_WORKDIR: /tmp/runner/work
-      EPHEMERAL: "false"
+      # EPHEMERAL : ne pas définir (testé sur "non vide") ; EPHEMERAL: "1" = 1 job puis sortie
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock   # docker depuis un job
     extra_hosts:

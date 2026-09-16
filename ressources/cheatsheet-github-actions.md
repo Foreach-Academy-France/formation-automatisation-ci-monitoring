@@ -304,7 +304,7 @@ services:
       RUNNER_NAME: lab-runner
       LABELS: lab,ansible
       RUNNER_WORKDIR: /tmp/runner/work
-      EPHEMERAL: "false"
+      # EPHEMERAL : ne pas définir (testé sur "non vide") ; EPHEMERAL: "1" = 1 job puis sortie
     extra_hosts: ["host.docker.internal:host-gateway"]
 ```
 

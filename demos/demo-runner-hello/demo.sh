@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../ressources/lab/runner"
 echo "1. Montrer Settings → Actions → Runners → New self-hosted runner (procédure native config.sh)"
-echo "2. Coller le token dans .env puis :"
+echo "2. cp .env.example .env → renseigner REPO_URL et RUNNER_TOKEN, puis :"
 docker compose up -d --build
 docker compose logs -f runner &      # attendre "Listening for Jobs"
 sleep 20; kill %1 || true

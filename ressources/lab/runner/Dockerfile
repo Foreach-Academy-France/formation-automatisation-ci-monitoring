@@ -40,9 +40,10 @@ ENV PATH="/opt/ansible/bin:${PATH}"
 # Collections utilisées par les rôles (synchronize, ufw)
 RUN ansible-galaxy collection install community.general ansible.posix \
       -p /usr/share/ansible/collections
-ENV ANSIBLE_COLLECTIONS_PATH=/usr/share/ansible/collections:/home/runner/.ansible/collections
+ENV ANSIBLE_COLLECTIONS_PATH=/usr/share/ansible/collections:/root/.ansible/collections
 
-# L'agent tourne en tant que `runner` (créé par l'image de base)
-RUN mkdir -p /home/runner/.ssh /tmp/runner/work \
-    && chown -R runner:runner /home/runner /tmp/runner
-USER runner
+# L'agent tourne en root dans le conteneur (comportement par défaut de l'image,
+# RUN_AS_ROOT=true) : c'est ce qui permet aux jobs d'utiliser le socket Docker
+# monté (`docker run`, `uses: docker://…`) sans gymnastique de groupes.
+# Sous Podman rootless, "root" dans le conteneur = votre utilisateur sur l'hôte.
+RUN mkdir -p /root/.ssh /tmp/runner/work
