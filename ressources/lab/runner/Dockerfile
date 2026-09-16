@@ -1,7 +1,7 @@
 # =============================================================================
 # Image du runner self-hosted GitHub Actions du lab TaskFlow
 # =============================================================================
-# Base : myoung34/github-runner (Ubuntu + agent actions/runner, enregistrement
+# Base : myoung34/github-runner:ubuntu-noble (Ubuntu 24.04 + agent actions/runner, enregistrement
 # automatique via les variables REPO_URL / RUNNER_TOKEN au démarrage).
 # On y ajoute les outils dont les jobs `runs-on: [self-hosted, lab]` ont besoin :
 #   - Ansible (+ collections) et rsync/ssh : déploiement sur les VMs
@@ -10,7 +10,7 @@
 #
 #   docker compose build   (≈ 3 min la première fois)
 # =============================================================================
-FROM docker.io/myoung34/github-runner:latest
+FROM docker.io/myoung34/github-runner:ubuntu-noble
 
 USER root
 ENV DEBIAN_FRONTEND=noninteractive
@@ -33,7 +33,7 @@ RUN mkdir -p /etc/apt/keyrings \
 # Ansible dans un venv dédié (isolé du Python système)
 RUN python3 -m venv /opt/ansible \
     && /opt/ansible/bin/pip install --no-cache-dir --upgrade pip \
-    && /opt/ansible/bin/pip install --no-cache-dir "ansible>=9,<11" \
+    && /opt/ansible/bin/pip install --no-cache-dir "ansible>=9,<12" \
     && ln -s /opt/ansible/bin/ansible* /usr/local/bin/
 ENV PATH="/opt/ansible/bin:${PATH}"
 
